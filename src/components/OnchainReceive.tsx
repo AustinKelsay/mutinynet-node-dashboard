@@ -105,12 +105,6 @@ export const OnchainReceive = () => {
             </div>
           </div>
         )}
-
-        <div className="bg-blue-900/20 border border-blue-600 text-blue-400 p-3 rounded-lg text-sm">
-          <p className="font-semibold mb-1">💡 Tip:</p>
-          <p>For MutinyNet testing, you can get free testnet Bitcoin from a faucet.</p>
-          <p className="mt-1">Each address can only be used once for best privacy.</p>
-        </div>
       </div>
     </div>
   );

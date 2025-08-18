@@ -23,7 +23,7 @@ export const Dashboard = ({ onDisconnect }: DashboardProps) => {
       <div className="container mx-auto px-4 py-8 max-w-7xl flex-1">
         <header className="text-center mb-12">
           <h1 className="text-5xl font-bold mb-4 bg-gradient-to-r from-yellow-400 via-orange-500 to-purple-600 bg-clip-text text-transparent">
-            ⚡ MutinyNet LND Dashboard
+            ⚡ LIT-DASHBOARD
           </h1>
           <p className="text-gray-400 text-lg mb-4">
             Connected to your Lightning Network development node
@@ -90,23 +90,14 @@ export const Dashboard = ({ onDisconnect }: DashboardProps) => {
             </div>
           </div>
         </div>
-
-        <footer className="text-center mt-12 text-gray-500 text-sm">
-          <p>Connected to MutinyNet • Built with React + Vite + Tailwind</p>
-        </footer>
       </div>
-      
       {/* API Console - Full Width at Bottom */}
       <ApiConsole />
       
       {/* Faucet Invoice Modal */}
       {showFaucetInvoice && (
         <FaucetInvoice 
-          onClose={() => setShowFaucetInvoice(false)}
-          onSuccess={() => {
-            setShowFaucetInvoice(false);
-            // Optionally refresh balance or show success message
-          }}
+        onClose={() => setShowFaucetInvoice(false)}
         />
       )}
     </div>

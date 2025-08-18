@@ -253,26 +253,30 @@ const createLndClient = (): AxiosInstance => {
   client.interceptors.request.use(
     (config: InternalAxiosRequestConfig) => {
       const startTime = Date.now();
-      // Store start time for duration calculation
-      (config as InternalAxiosRequestConfig & { metadata?: { startTime: number } }).metadata = { startTime };
+      // Store start time and request ID for tracking
+      const method = config.method?.toUpperCase() || 'GET';
+      const requestId = apiLogger.startRequest(
+        method,
+        config.url || '',
+        config.data,
+        config.params,
+        config.headers,
+        config.baseURL ? `${config.baseURL}${config.url}` : config.url
+      );
       
-      // Log request
-      apiLogger.addLog({
-        method: config.method?.toUpperCase() || 'GET',
-        endpoint: config.url || '',
-        type: 'request',
-        data: config.data || config.params,
-      });
+      // Debug log for POST requests
+      if (method === 'POST') {
+        console.log('POST Request started:', config.url, 'RequestID:', requestId);
+      }
+      
+      (config as InternalAxiosRequestConfig & { metadata?: { startTime: number; requestId: string } }).metadata = { 
+        startTime,
+        requestId 
+      };
       
       return config;
     },
     (error) => {
-      apiLogger.addLog({
-        method: 'ERROR',
-        endpoint: error.config?.url || '',
-        type: 'error',
-        data: error.message,
-      });
       return Promise.reject(error);
     }
   );
@@ -280,37 +284,57 @@ const createLndClient = (): AxiosInstance => {
   // Add response interceptor
   client.interceptors.response.use(
     (response: AxiosResponse) => {
-      const configWithMeta = response.config as InternalAxiosRequestConfig & { metadata?: { startTime: number } };
+      const configWithMeta = response.config as InternalAxiosRequestConfig & { metadata?: { startTime: number; requestId: string } };
       const duration = configWithMeta?.metadata?.startTime
         ? Date.now() - configWithMeta.metadata.startTime
         : undefined;
       
-      // Log response
-      apiLogger.addLog({
-        method: response.config.method?.toUpperCase() || 'GET',
-        endpoint: response.config.url || '',
-        type: 'response',
-        data: response.data,
-        status: response.status,
-        duration,
-      });
+      // Complete the request log with response data
+      if (configWithMeta?.metadata?.requestId) {
+        // Debug log for POST responses
+        if (response.config.method?.toUpperCase() === 'POST') {
+          console.log('POST Response received:', response.config.url, 'RequestID:', configWithMeta.metadata.requestId, 'Status:', response.status);
+        }
+        
+        apiLogger.completeRequest(
+          configWithMeta.metadata.requestId,
+          response.data,
+          response.status,
+          response.headers,
+          duration
+        );
+      } else {
+        console.warn('No requestId found for response:', response.config.url);
+      }
       
       return response;
     },
     (error) => {
-      const configWithMeta = error.config as InternalAxiosRequestConfig & { metadata?: { startTime: number } } | undefined;
+      const configWithMeta = error.config as InternalAxiosRequestConfig & { metadata?: { startTime: number; requestId: string } } | undefined;
       const duration = configWithMeta?.metadata?.startTime
         ? Date.now() - configWithMeta.metadata.startTime
         : undefined;
       
-      apiLogger.addLog({
-        method: error.config?.method?.toUpperCase() || 'ERROR',
-        endpoint: error.config?.url || '',
-        type: 'error',
-        data: error.response?.data || error.message,
-        status: error.response?.status,
-        duration,
-      });
+      // Fail the request log with error data
+      if (configWithMeta?.metadata?.requestId) {
+        apiLogger.failRequest(
+          configWithMeta.metadata.requestId,
+          error.response?.data || error.message,
+          error.response?.status,
+          error.response?.headers,
+          duration
+        );
+      } else {
+        // No request ID means the request never started properly
+        apiLogger.failRequest(
+          '',
+          error.message,
+          error.response?.status,
+          error.response?.headers,
+          duration
+        );
+      }
+      
       return Promise.reject(error);
     }
   );
@@ -338,38 +362,71 @@ export const testConnection = async (host: string, macaroon: string): Promise<No
     },
   });
 
-  // Add interceptors for logging
+  // Add interceptors for logging with combined request/response
   testClient.interceptors.request.use(
     (config: InternalAxiosRequestConfig) => {
-      apiLogger.addLog({
-        method: config.method?.toUpperCase() || 'GET',
-        endpoint: config.url || '',
-        type: 'request',
-        data: config.data || config.params,
-      });
+      const startTime = Date.now();
+      const requestId = apiLogger.startRequest(
+        config.method?.toUpperCase() || 'GET',
+        config.url || '',
+        config.data,
+        config.params,
+        config.headers,
+        config.baseURL ? `${config.baseURL}${config.url}` : config.url
+      );
+      
+      (config as InternalAxiosRequestConfig & { metadata?: { startTime: number; requestId: string } }).metadata = { 
+        startTime,
+        requestId 
+      };
+      
       return config;
     }
   );
 
   testClient.interceptors.response.use(
     (response: AxiosResponse) => {
-      apiLogger.addLog({
-        method: response.config.method?.toUpperCase() || 'GET',
-        endpoint: response.config.url || '',
-        type: 'response',
-        data: response.data,
-        status: response.status,
-      });
+      const configWithMeta = response.config as InternalAxiosRequestConfig & { metadata?: { startTime: number; requestId: string } };
+      const duration = configWithMeta?.metadata?.startTime
+        ? Date.now() - configWithMeta.metadata.startTime
+        : undefined;
+      
+      if (configWithMeta?.metadata?.requestId) {
+        apiLogger.completeRequest(
+          configWithMeta.metadata.requestId,
+          response.data,
+          response.status,
+          response.headers,
+          duration
+        );
+      }
+      
       return response;
     },
     (error) => {
-      apiLogger.addLog({
-        method: error.config?.method?.toUpperCase() || 'ERROR',
-        endpoint: error.config?.url || '',
-        type: 'error',
-        data: error.response?.data || error.message,
-        status: error.response?.status,
-      });
+      const configWithMeta = error.config as InternalAxiosRequestConfig & { metadata?: { startTime: number; requestId: string } } | undefined;
+      const duration = configWithMeta?.metadata?.startTime
+        ? Date.now() - configWithMeta.metadata.startTime
+        : undefined;
+      
+      if (configWithMeta?.metadata?.requestId) {
+        apiLogger.failRequest(
+          configWithMeta.metadata.requestId,
+          error.response?.data || error.message,
+          error.response?.status,
+          error.response?.headers,
+          duration
+        );
+      } else {
+        apiLogger.failRequest(
+          '',
+          error.message,
+          error.response?.status,
+          error.response?.headers,
+          duration
+        );
+      }
+      
       return Promise.reject(error);
     }
   );
@@ -413,7 +470,6 @@ export const createInvoice = async (amount: number, memo?: string): Promise<Invo
       requestBody.memo = memo;
     }
     const response = await lnd.post<Invoice>("/v1/invoices", requestBody);
-    console.log("lnd response", response);
     return response.data;
   } catch (error) {
     return handleError(error, "creating invoice");
@@ -560,10 +616,39 @@ export const getWalletBalance = async (): Promise<WalletBalance> => {
   }
 };
 
+// Address type enum matching LND's API
+enum AddressType {
+  WITNESS_PUBKEY_HASH = 0,  // p2wkh (default)
+  NESTED_PUBKEY_HASH = 1,   // np2wkh
+  UNUSED = 2,
+  TAPROOT_PUBKEY = 3,       // p2tr
+  PUBKEY_HASH = 4,          // p2pkh
+}
+
 export const newAddress = async (type: string = "p2wkh"): Promise<string> => {
   try {
     const lnd = createLndClient();
-    const response = await lnd.get<NewAddressResponse>(`/v1/newaddress?type=${type}`);
+    
+    // Map string type to enum value
+    let addressType: number;
+    switch (type) {
+      case "p2wkh":
+        addressType = AddressType.WITNESS_PUBKEY_HASH;
+        break;
+      case "np2wkh":
+        addressType = AddressType.NESTED_PUBKEY_HASH;
+        break;
+      case "p2tr":
+        addressType = AddressType.TAPROOT_PUBKEY;
+        break;
+      case "p2pkh":
+        addressType = AddressType.PUBKEY_HASH;
+        break;
+      default:
+        addressType = AddressType.WITNESS_PUBKEY_HASH; // Default to p2wkh
+    }
+    
+    const response = await lnd.get<NewAddressResponse>(`/v1/newaddress?type=${addressType}`);
     return response.data.address;
   } catch (error) {
     return handleError(error, "generating new address");
@@ -640,7 +725,8 @@ interface LnurlInvoiceResponse {
 
 export const fetchLightningAddressInvoice = async (
   lightningAddress: string,
-  amountSats: number
+  amountSats: number,
+  useProxy: boolean = true
 ): Promise<string> => {
   try {
     // Parse lightning address
@@ -650,7 +736,13 @@ export const fetchLightningAddressInvoice = async (
     }
 
     // Convert to LNURL endpoint
-    const lnurlEndpoint = `https://${domain}/.well-known/lnurlp/${username}`;
+    let lnurlEndpoint = `https://${domain}/.well-known/lnurlp/${username}`;
+    
+    // Use CORS proxy for development (you can replace with your own proxy)
+    if (useProxy && typeof window !== 'undefined') {
+      // Using public CORS proxy for development - replace with your own in production
+      lnurlEndpoint = `https://corsproxy.io/?${encodeURIComponent(lnurlEndpoint)}`;
+    }
     
     // Step 1: Fetch LNURL metadata
     const metadataResponse = await axios.get<LnurlPayResponse>(lnurlEndpoint);
@@ -668,7 +760,13 @@ export const fetchLightningAddressInvoice = async (
     const callbackUrl = new URL(metadata.callback);
     callbackUrl.searchParams.set('amount', amountMsats.toString());
     
-    const invoiceResponse = await axios.get<LnurlInvoiceResponse>(callbackUrl.toString());
+    // Apply proxy to callback URL if needed
+    let finalCallbackUrl = callbackUrl.toString();
+    if (useProxy && typeof window !== 'undefined') {
+      finalCallbackUrl = `https://corsproxy.io/?${encodeURIComponent(callbackUrl.toString())}`;
+    }
+    
+    const invoiceResponse = await axios.get<LnurlInvoiceResponse>(finalCallbackUrl);
     
     if (!invoiceResponse.data.pr) {
       throw new Error('No invoice returned from lightning address');

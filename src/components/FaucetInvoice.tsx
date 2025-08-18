@@ -1,12 +1,11 @@
 import { useState } from 'react';
-import { fetchLightningAddressInvoice, payInvoice } from '../lib/lnd';
+import { fetchLightningAddressInvoice } from '../lib/lnd';
 
 interface FaucetInvoiceProps {
   onClose: () => void;
-  onSuccess?: () => void;
 }
 
-export const FaucetInvoice = ({ onClose, onSuccess }: FaucetInvoiceProps) => {
+export const FaucetInvoice = ({ onClose }: FaucetInvoiceProps) => {
   const [amount, setAmount] = useState('10000');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -15,7 +14,7 @@ export const FaucetInvoice = ({ onClose, onSuccess }: FaucetInvoiceProps) => {
   
   const lightningAddress = 'refund@lnurl.mutinynet.com';
 
-  const handleRequestAndPay = async () => {
+  const handleRequestInvoice = async () => {
     if (!amount || parseInt(amount) <= 0) {
       setError('Please enter a valid amount');
       return;
@@ -27,27 +26,23 @@ export const FaucetInvoice = ({ onClose, onSuccess }: FaucetInvoiceProps) => {
     setSuccess(false);
 
     try {
-      // Step 1: Get invoice from Lightning Address
+      // Get invoice from Lightning Address
       const bolt11 = await fetchLightningAddressInvoice(
         lightningAddress,
         parseInt(amount)
       );
       
       setInvoice(bolt11);
-      
-      // Step 2: Pay the invoice
-      await payInvoice(bolt11);
-      
       setSuccess(true);
-      
-      // Close after success
-      setTimeout(() => {
-        onSuccess?.();
-        onClose();
-      }, 2000);
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to request or pay faucet invoice';
-      setError(errorMessage);
+      const errorMessage = err instanceof Error ? err.message : 'Failed to request faucet invoice';
+      
+      // Check for CORS or network error
+      if (errorMessage.includes('Network Error') || errorMessage.includes('CORS')) {
+        setError('Network error: The CORS proxy may be down, or there may be a connection issue. Try again later.');
+      } else {
+        setError(errorMessage);
+      }
       console.error(err);
     } finally {
       setLoading(false);
@@ -69,6 +64,9 @@ export const FaucetInvoice = ({ onClose, onSuccess }: FaucetInvoiceProps) => {
             <span className="text-gray-500 text-xs">Lightning Address:</span>
             <div className="font-mono text-sm text-purple-400">{lightningAddress}</div>
           </div>
+          <div className="text-xs text-gray-500">
+            Note: Using CORS proxy for development. Production deployment may not need this.
+          </div>
         </div>
 
         {error && (
@@ -77,11 +75,44 @@ export const FaucetInvoice = ({ onClose, onSuccess }: FaucetInvoiceProps) => {
           </div>
         )}
 
-        {success ? (
-          <div className="bg-green-900/20 border border-green-500 text-green-400 p-4 rounded-lg text-center">
-            <div className="text-2xl mb-2">✅</div>
-            <div className="font-semibold">Payment Successful!</div>
-            <div className="text-sm mt-1">You should receive {amount} sats soon</div>
+        {success && invoice ? (
+          <div className="space-y-4">
+            <div className="bg-green-900/20 border border-green-500 text-green-400 p-4 rounded-lg">
+              <div className="text-lg font-semibold mb-2">✅ Invoice Received!</div>
+              <div className="text-sm mb-3">Copy this invoice and pay it from your wallet to receive {amount} sats:</div>
+              <div className="bg-gray-800 p-3 rounded">
+                <textarea
+                  readOnly
+                  value={invoice}
+                  className="w-full bg-transparent text-gray-300 font-mono text-xs resize-none focus:outline-none"
+                  rows={4}
+                  onClick={(e) => e.currentTarget.select()}
+                />
+              </div>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(invoice);
+                  // Show temporary feedback
+                  const btn = document.getElementById('copy-btn');
+                  if (btn) {
+                    btn.textContent = 'Copied!';
+                    setTimeout(() => {
+                      btn.textContent = 'Copy Invoice';
+                    }, 2000);
+                  }
+                }}
+                id="copy-btn"
+                className="mt-3 w-full bg-purple-600 hover:bg-purple-700 text-white py-2 rounded transition-colors"
+              >
+                Copy Invoice
+              </button>
+            </div>
+            <button
+              onClick={onClose}
+              className="w-full bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded transition-colors"
+            >
+              Close
+            </button>
           </div>
         ) : (
           <>
@@ -127,25 +158,14 @@ export const FaucetInvoice = ({ onClose, onSuccess }: FaucetInvoiceProps) => {
               </div>
             </div>
 
-            {invoice && !loading && (
-              <div className="mb-4 p-3 bg-gray-700 rounded">
-                <div className="text-xs text-gray-400 mb-1">Invoice received:</div>
-                <div className="font-mono text-xs text-gray-300 break-all">
-                  {invoice.substring(0, 50)}...
-                </div>
-                <div className="text-xs text-yellow-400 mt-2">
-                  ⏳ Paying invoice...
-                </div>
-              </div>
-            )}
 
             <div className="flex gap-3">
               <button
-                onClick={handleRequestAndPay}
+                onClick={handleRequestInvoice}
                 disabled={loading || !amount}
                 className="flex-1 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-semibold py-2 rounded transition-colors"
               >
-                {loading ? 'Processing...' : 'Request & Pay Invoice'}
+                {loading ? 'Requesting...' : 'Request Invoice'}
               </button>
               <button
                 onClick={onClose}
