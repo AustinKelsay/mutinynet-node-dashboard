@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { NodeInfo } from './NodeInfo';
 import { ChannelBalance } from './ChannelBalance';
 import { OnchainBalance } from './OnchainBalance';
@@ -7,15 +8,19 @@ import { OnchainSend } from './OnchainSend';
 import { OnchainReceive } from './OnchainReceive';
 import { PeerManager } from './PeerManager';
 import { ChannelManager } from './ChannelManager';
+import { ApiConsole } from './ApiConsole';
+import { FaucetInvoice } from './FaucetInvoice';
 
 interface DashboardProps {
   onDisconnect: () => void;
 }
 
 export const Dashboard = ({ onDisconnect }: DashboardProps) => {
+  const [showFaucetInvoice, setShowFaucetInvoice] = useState(false);
+
   return (
-    <div className="min-h-screen bg-gray-900 text-gray-100">
-      <div className="container mx-auto px-4 py-8 max-w-7xl">
+    <div className="min-h-screen bg-gray-900 text-gray-100 flex flex-col">
+      <div className="container mx-auto px-4 py-8 max-w-7xl flex-1">
         <header className="text-center mb-12">
           <h1 className="text-5xl font-bold mb-4 bg-gradient-to-r from-yellow-400 via-orange-500 to-purple-600 bg-clip-text text-transparent">
             ⚡ MutinyNet LND Dashboard
@@ -24,6 +29,12 @@ export const Dashboard = ({ onDisconnect }: DashboardProps) => {
             Connected to your Lightning Network development node
           </p>
           <div className="flex justify-center gap-2">
+            <button
+              onClick={() => setShowFaucetInvoice(true)}
+              className="bg-green-600 hover:bg-green-700 px-4 py-2 rounded-lg text-sm transition-colors"
+            >
+              ⚡ Request Faucet Invoice
+            </button>
             <button
               onClick={() => window.open('https://faucet.mutinynet.com', '_blank')}
               className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg text-sm transition-colors"
@@ -84,6 +95,20 @@ export const Dashboard = ({ onDisconnect }: DashboardProps) => {
           <p>Connected to MutinyNet • Built with React + Vite + Tailwind</p>
         </footer>
       </div>
+      
+      {/* API Console - Full Width at Bottom */}
+      <ApiConsole />
+      
+      {/* Faucet Invoice Modal */}
+      {showFaucetInvoice && (
+        <FaucetInvoice 
+          onClose={() => setShowFaucetInvoice(false)}
+          onSuccess={() => {
+            setShowFaucetInvoice(false);
+            // Optionally refresh balance or show success message
+          }}
+        />
+      )}
     </div>
   );
 };

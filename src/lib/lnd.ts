@@ -1,6 +1,7 @@
 import axios from "axios";
-import type { AxiosInstance } from "axios";
+import type { AxiosInstance, InternalAxiosRequestConfig, AxiosResponse } from "axios";
 import { connectionManager } from "./connectionManager";
+import { apiLogger } from "./apiLogger";
 
 // Types
 interface NodeInfo {
@@ -240,13 +241,81 @@ const createLndClient = (): AxiosInstance => {
     throw new Error("No credentials found. Please connect first.");
   }
 
-  return axios.create({
+  const client = axios.create({
     baseURL: `https://${credentials.host}:8080`,
     headers: {
       "Content-Type": "application/json",
       "Grpc-Metadata-Macaroon": credentials.macaroon,
     },
   });
+
+  // Add request interceptor
+  client.interceptors.request.use(
+    (config: InternalAxiosRequestConfig) => {
+      const startTime = Date.now();
+      // Store start time for duration calculation
+      (config as InternalAxiosRequestConfig & { metadata?: { startTime: number } }).metadata = { startTime };
+      
+      // Log request
+      apiLogger.addLog({
+        method: config.method?.toUpperCase() || 'GET',
+        endpoint: config.url || '',
+        type: 'request',
+        data: config.data || config.params,
+      });
+      
+      return config;
+    },
+    (error) => {
+      apiLogger.addLog({
+        method: 'ERROR',
+        endpoint: error.config?.url || '',
+        type: 'error',
+        data: error.message,
+      });
+      return Promise.reject(error);
+    }
+  );
+
+  // Add response interceptor
+  client.interceptors.response.use(
+    (response: AxiosResponse) => {
+      const configWithMeta = response.config as InternalAxiosRequestConfig & { metadata?: { startTime: number } };
+      const duration = configWithMeta?.metadata?.startTime
+        ? Date.now() - configWithMeta.metadata.startTime
+        : undefined;
+      
+      // Log response
+      apiLogger.addLog({
+        method: response.config.method?.toUpperCase() || 'GET',
+        endpoint: response.config.url || '',
+        type: 'response',
+        data: response.data,
+        status: response.status,
+        duration,
+      });
+      
+      return response;
+    },
+    (error) => {
+      const configWithMeta = error.config as InternalAxiosRequestConfig & { metadata?: { startTime: number } } | undefined;
+      const duration = configWithMeta?.metadata?.startTime
+        ? Date.now() - configWithMeta.metadata.startTime
+        : undefined;
+      
+      apiLogger.addLog({
+        method: error.config?.method?.toUpperCase() || 'ERROR',
+        endpoint: error.config?.url || '',
+        type: 'error',
+        data: error.response?.data || error.message,
+        status: error.response?.status,
+        duration,
+      });
+      return Promise.reject(error);
+    }
+  );
+
+  return client;
 };
 
 // Helper to handle errors
@@ -268,6 +337,42 @@ export const testConnection = async (host: string, macaroon: string): Promise<No
       "Grpc-Metadata-Macaroon": macaroon,
     },
   });
+
+  // Add interceptors for logging
+  testClient.interceptors.request.use(
+    (config: InternalAxiosRequestConfig) => {
+      apiLogger.addLog({
+        method: config.method?.toUpperCase() || 'GET',
+        endpoint: config.url || '',
+        type: 'request',
+        data: config.data || config.params,
+      });
+      return config;
+    }
+  );
+
+  testClient.interceptors.response.use(
+    (response: AxiosResponse) => {
+      apiLogger.addLog({
+        method: response.config.method?.toUpperCase() || 'GET',
+        endpoint: response.config.url || '',
+        type: 'response',
+        data: response.data,
+        status: response.status,
+      });
+      return response;
+    },
+    (error) => {
+      apiLogger.addLog({
+        method: error.config?.method?.toUpperCase() || 'ERROR',
+        endpoint: error.config?.url || '',
+        type: 'error',
+        data: error.response?.data || error.message,
+        status: error.response?.status,
+      });
+      return Promise.reject(error);
+    }
+  );
 
   try {
     const response = await testClient.get<NodeInfo>("/v1/getinfo");
@@ -510,5 +615,67 @@ export const listUnspent = async (minConfs: number = 0, maxConfs: number = 99999
     return response.data;
   } catch (error) {
     return handleError(error, "listing unspent outputs");
+  }
+};
+
+// Lightning Address Support
+interface LnurlPayResponse {
+  callback: string;
+  maxSendable: number;
+  minSendable: number;
+  metadata: string;
+  tag: string;
+  allowsNostr?: boolean;
+  nostrPubkey?: string;
+}
+
+interface LnurlInvoiceResponse {
+  pr: string;
+  routes: unknown[];
+  successAction?: {
+    tag: string;
+    message?: string;
+  };
+}
+
+export const fetchLightningAddressInvoice = async (
+  lightningAddress: string,
+  amountSats: number
+): Promise<string> => {
+  try {
+    // Parse lightning address
+    const [username, domain] = lightningAddress.split('@');
+    if (!username || !domain) {
+      throw new Error('Invalid lightning address format');
+    }
+
+    // Convert to LNURL endpoint
+    const lnurlEndpoint = `https://${domain}/.well-known/lnurlp/${username}`;
+    
+    // Step 1: Fetch LNURL metadata
+    const metadataResponse = await axios.get<LnurlPayResponse>(lnurlEndpoint);
+    const metadata = metadataResponse.data;
+    
+    // Validate amount is within bounds
+    const amountMsats = amountSats * 1000;
+    if (amountMsats < metadata.minSendable || amountMsats > metadata.maxSendable) {
+      throw new Error(
+        `Amount must be between ${metadata.minSendable / 1000} and ${metadata.maxSendable / 1000} sats`
+      );
+    }
+    
+    // Step 2: Request invoice from callback
+    const callbackUrl = new URL(metadata.callback);
+    callbackUrl.searchParams.set('amount', amountMsats.toString());
+    
+    const invoiceResponse = await axios.get<LnurlInvoiceResponse>(callbackUrl.toString());
+    
+    if (!invoiceResponse.data.pr) {
+      throw new Error('No invoice returned from lightning address');
+    }
+    
+    return invoiceResponse.data.pr;
+  } catch (error) {
+    return handleError(error, "fetching lightning address invoice");
   }
 };

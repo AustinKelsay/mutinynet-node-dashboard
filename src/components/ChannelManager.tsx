@@ -23,11 +23,59 @@ interface ClosedChannel {
   close_type: string;
 }
 
+interface PendingChannelsResponse {
+  pending_open_channels?: Array<{
+    channel: {
+      remote_node_pub: string;
+      channel_point: string;
+      capacity: string;
+      local_balance: string;
+      remote_balance: string;
+    };
+    commit_fee: string;
+    commit_weight: string;
+    fee_per_kw: string;
+  }>;
+  pending_closing_channels?: Array<{
+    channel: {
+      remote_node_pub: string;
+      channel_point: string;
+      capacity: string;
+      local_balance: string;
+      remote_balance: string;
+    };
+    closing_txid: string;
+  }>;
+  pending_force_closing_channels?: Array<{
+    channel: {
+      remote_node_pub: string;
+      channel_point: string;
+      capacity: string;
+      local_balance: string;
+      remote_balance: string;
+    };
+    closing_txid: string;
+    limbo_balance: string;
+    maturity_height: number;
+    blocks_til_maturity: number;
+  }>;
+  waiting_close_channels?: Array<{
+    channel: {
+      remote_node_pub: string;
+      channel_point: string;
+      capacity: string;
+      local_balance: string;
+      remote_balance: string;
+    };
+    limbo_balance: string;
+  }>;
+}
+
 type TabType = 'active' | 'pending' | 'closed';
 
 export const ChannelManager = () => {
   const [channels, setChannels] = useState<Channel[]>([]);
-  const [pendingChannels, setPendingChannels] = useState<any>(null);
+  const [pendingChannels, setPendingChannels] = useState<PendingChannelsResponse | null>(null);
   const [closedChannels, setClosedChannels] = useState<ClosedChannel[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -422,10 +470,10 @@ export const ChannelManager = () => {
             </div>
           ) : (
             <div className="space-y-4">
-              {pendingChannels.pending_open_channels?.length > 0 && (
+              {pendingChannels?.pending_open_channels && pendingChannels.pending_open_channels.length > 0 && (
                 <div>
                   <h4 className="text-sm font-semibold text-yellow-400 mb-2">Opening Channels</h4>
-                  {pendingChannels.pending_open_channels.map((pending: any, index: number) => (
+                  {pendingChannels.pending_open_channels.map((pending, index) => (
                     <div key={index} className="bg-gray-700 rounded-lg p-3 mb-2">
                       <div className="font-mono text-xs text-gray-400 mb-1">
                         {pending.channel.remote_node_pub.substring(0, 20)}...
@@ -445,10 +493,10 @@ export const ChannelManager = () => {
                 </div>
               )}
 
-              {pendingChannels.pending_closing_channels?.length > 0 && (
+              {pendingChannels?.pending_closing_channels && pendingChannels.pending_closing_channels.length > 0 && (
                 <div>
                   <h4 className="text-sm font-semibold text-orange-400 mb-2">Closing Channels</h4>
-                  {pendingChannels.pending_closing_channels.map((pending: any, index: number) => (
+                  {pendingChannels.pending_closing_channels.map((pending, index) => (
                     <div key={index} className="bg-gray-700 rounded-lg p-3 mb-2">
                       <div className="font-mono text-xs text-gray-400 mb-1">
                         {pending.channel.remote_node_pub.substring(0, 20)}...
@@ -462,10 +510,10 @@ export const ChannelManager = () => {
                 </div>
               )}
 
-              {pendingChannels.pending_force_closing_channels?.length > 0 && (
+              {pendingChannels?.pending_force_closing_channels && pendingChannels.pending_force_closing_channels.length > 0 && (
                 <div>
                   <h4 className="text-sm font-semibold text-red-400 mb-2">Force Closing Channels</h4>
-                  {pendingChannels.pending_force_closing_channels.map((pending: any, index: number) => (
+                  {pendingChannels.pending_force_closing_channels.map((pending, index) => (
                     <div key={index} className="bg-gray-700 rounded-lg p-3 mb-2">
                       <div className="font-mono text-xs text-gray-400 mb-1">
                         {pending.channel.remote_node_pub.substring(0, 20)}...
